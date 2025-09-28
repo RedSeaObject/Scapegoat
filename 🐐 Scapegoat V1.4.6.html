@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>🐐 Scapegoat V1.4.6</title>
+  <style>
+    :root{ --backlogW: 360px; }
+    body {font-family: Arial, sans-serif; background:#f5f5f5; margin:0;}
+    header {background:#333; color:#fff; padding:10px; position:sticky; top:0; z-index:5;}
+    .nav {display:flex; gap:10px; justify-content:space-between; align-items:center; flex-wrap:wrap}
+    .btn {padding:6px 10px; cursor:pointer; border:1px solid #555; background:#444; color:#fff; border-radius:6px}
+    .btn:hover{background:#555}
+    .btn.active{background:#6ea8fe; color:#000; border-color:#6ea8fe}
+    .month {display:flex; gap:6px; align-items:center;}
+
+    .layout{max-width:1400px; margin:0 auto; padding:12px; display:block;}
+    .main{margin-right:calc(var(--backlogW) + 24px);}
+    #backlogDock{position:fixed; right:12px; top:90px; width:var(--backlogW); max-height:calc(100vh - 102px); overflow:auto;}
+
+    #backlog, #status {background:#fff; margin:8px 0 20px; padding:10px; border-radius:6px; box-shadow:0 2px 5px rgba(0,0,0,.1);}
+    #backlog-header, #status-header {margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;}
+    #backlogZone, #statusZone {min-height:80px; border:2px dashed #aaa; padding:10px; border-radius:6px; position:relative; cursor:pointer;}
+    #backlogZone::before {
+      content:"Click empty space to create a task • Drag tasks here to stash in Backlog";
+      display:block; margin-top:8px; color:#999; font-size:14px; text-align:center; pointer-events:none;
+    }
+    #statusZone::before {
+      content:"Drop updates here • Click empty space to add a Status Update";
+      display:block; margin-top:8px; color:#999; font-size:14px; text-align:center; pointer-events:none;
+    }
+
+    .calendar {display:grid; grid-template-columns:repeat(7,1fr); gap:10px; margin:0;}
+    .weekday {display:grid; grid-template-columns:repeat(7,1fr); text-align:center; font-weight:bold; margin:0 0 8px 0;}
+    .day {background:#fff; min-height:100px; border-radius:6px; box-shadow:0 2px 5px rgba(0,0,0,.1); display:flex; flex-direction:column;}
+    .day.today { outline: 3px solid #f7b0b0; box-shadow:0 0 0 4px rgba(247,176,176,.35) inset, 0 2px 5px rgba(0,0,0,.1); }
+    .day-head {padding:5px; border-bottom:1px solid #eee; text-align:right;}
+    .dropzone {flex:1; padding:5px; display:flex; flex-direction:column; gap:5px;}
+
+    .card {padding:5px; border-radius:6px; cursor:grab; color:#000; background:#eaeaea; position:relative;}
+    .card .row {display:flex; align-items:center; gap:8px;}
+    .card .title {font-weight:bold; flex:1;}
+
+    .tick {display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; border:1px solid currentColor; background:transparent; cursor:pointer; font-size:14px; line-height:1; opacity:.9}
+    .tick[aria-pressed="true"]{background:rgba(0,0,0,.15)}
+
+    .card .details{display:none; margin-top:4px; white-space:pre-wrap; border-top:1px solid rgba(0,0,0,.08); padding-top:4px;}
+    .card.open .details{display:block;}
+
+    .card.done{opacity:.6;}
+    .card.done .title{text-decoration:line-through;}
+
+    .actions {margin-top:5px; display:flex; gap:5px;}
+    .actions button {border:none; background:transparent; cursor:pointer; font-size:14px; padding:2px 6px; border-radius:6px;}
+    .actions button span {pointer-events:none;}
+    .actions button:hover {opacity:0.85;}
+    dialog {border:none; border-radius:8px; padding:10px;}
+    dialog form {display:flex; flex-direction:column; gap:10px;}
+
+    @media (max-width: 960px){
+      .main{margin-right:0}
+      #backlogDock{position:static; width:auto; max-height:none;}
+      .layout{padding:12px}
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="nav">
+      <div class="title">🐐 Scapegoat V1.4.6</div>
+      <div class="month">
+        <button class="btn" id="prev">◀</button>
+        <b id="rangeLabel">September 2025</b>
+        <button class="btn" id="next">▶</button>
+      </div>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <button class="btn active" id="viewMonth">Month</button>
+        <button class="btn" id="viewWeek">Week</button>
+      </div>
+      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+        <button class="btn" id="exportJSON">Export JSON</button>
+        <label class="btn" for="importJSON">Import JSON</label>
+        <input type="file" id="importJSON" accept="application/json" hidden="">
+        <button class="btn" id="saveFile">💾 Save HTML</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="main">
+      <div class="weekday">
+        <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+      </div>
+      <div id="calendar" class="calendar"></div>
+    </div>
+
+    <aside id="backlogDock">
+      <section id="backlog">
+        <div id="backlog-header"><h2>Backlog</h2></div>
+        <div id="backlogZone" class="dropzone" data-date="backlog"></div>
+      </section>
+
+      <section id="status">
+        <div id="status-header"><h2>Status Updates</h2></div>
+        <div id="statusZone" class="dropzone" data-date="status"></div>
+      </section>
+    </aside>
+  </div>
+
+  <template id="cardTpl">
+    <div class="card" draggable="true">
+      <div class="row">
+        <button class="tick" title="Mark done" aria-pressed="false">✓</button>
+        <div class="title txt"></div>
+      </div>
+      <div class="details"></div>
+      <div class="actions">
+        <button class="edit"><span>✎</span></button>
+        <button class="copy"><span>⧉</span></button>
+        <button class="del"><span>🗑</span></button>
+      </div>
+    </div>
+  </template>
+
+  <dialog id="modal">
+    <form id="taskForm">
+      <input type="hidden" name="id" value="">
+      <input type="hidden" name="date" value="backlog">
+      <label>Title <input type="text" name="title" required=""></label>
+      <label>Notes <textarea name="notes" rows="3"></textarea></label>
+      <label>Color <input type="color" name="color" value="#6ea8fe"></label>
+      <div>
+        <button type="button" id="closeModal">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Start empty; you'll import your real data -->
+  <script id="kanban-data" type="application/json">{"tasks":[]}</script>
+
+  <script>
+  (function(){
+    const $=s=>document.querySelector(s);
+    const today=new Date();
+    const state={year: today.getFullYear(),month: today.getMonth(),cursor: new Date(today.getFullYear(), today.getMonth(), today.getDate()),view: 'month',tasks: []};
+
+    // Load embedded tasks (if any)
+    try{
+      const embedded = JSON.parse($('#kanban-data').textContent);
+      if (Array.isArray(embedded.tasks)) state.tasks=embedded.tasks;
+      else if (Array.isArray(embedded)) state.tasks=embedded;
+    }catch{}
+
+    const pad=n=>String(n).padStart(2,'0');
+    const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    const startOfWeek=d=>{ const s=new Date(d); const gd=(s.getDay()+6)%7; s.setDate(s.getDate()-gd); s.setHours(0,0,0,0); return s; };
+
+    function build(){ if(state.view==='week') buildWeek(); else buildMonth(); updateViewButtons(); }
+    function updateViewButtons(){ $('#viewMonth').classList.toggle('active', state.view==='month'); $('#viewWeek').classList.toggle('active', state.view==='week'); }
+
+    function buildMonth(){
+      const y=state.year,m=state.month; const cal=$('#calendar'); cal.innerHTML='';
+      const first=new Date(y,m,1);
+      const startOffset=(first.getDay()+6)%7;
+      const daysInMonth=new Date(y,m+1,0).getDate();
+      $('#rangeLabel').textContent=first.toLocaleString(undefined,{month:'long',year:'numeric'});
+      for(let i=0;i<startOffset;i++) cal.appendChild(document.createElement('div'));
+      for(let d=1;d<=daysInMonth;d++){
+        const dateStr=`${y}-${pad(m+1)}-${pad(d)}`;
+        cal.appendChild(makeDay(dateStr,d));
+      }
+    }
+
+    function buildWeek(){
+      const start=startOfWeek(state.cursor); const cal=$('#calendar'); cal.innerHTML='';
+      const end=new Date(start); end.setDate(start.getDate()+6);
+      const labelStart=start.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+      const labelEnd=end.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+      $('#rangeLabel').textContent=`Week of ${labelStart} – ${labelEnd}`;
+      for(let i=0;i<7;i++){
+        const d=new Date(start); d.setDate(start.getDate()+i);
+        const dateStr=ymd(d);
+        cal.appendChild(makeDay(dateStr, d.getDate()));
+      }
+    }
+
+    function makeDay(dateStr,dayNum){
+      const wrap=document.createElement('div'); wrap.className='day'; wrap.dataset.date=dateStr;
+      if(dateStr===ymd(new Date())) wrap.classList.add('today');
+      const head=document.createElement('div'); head.className='day-head';
+      const num=document.createElement('div'); num.textContent=dayNum; head.append(num);
+      const zone=document.createElement('div'); zone.className='dropzone'; zone.dataset.date=dateStr;
+      zone.addEventListener('dragover',e=>{e.preventDefault();});
+      zone.addEventListener('drop',e=>{e.preventDefault();const id=e.dataTransfer.getData('text/plain');moveCardToDate(id,dateStr);});
+      wrap.append(head,zone);
+      state.tasks.filter(t=>t.date===dateStr).forEach(t=>zone.appendChild(renderCard(t)));
+      return wrap;
+    }
+
+    function renderCard(task){
+      const tpl = $('#cardTpl');
+      const el = tpl.content.firstElementChild.cloneNode(true);
+      el.dataset.id = task.id;
+
+      el.querySelector('.title').textContent = task.title;
+      const detailsEl = el.querySelector('.details');
+      detailsEl.textContent = (task.notes || '').trim();
+      if(!detailsEl.textContent) detailsEl.style.display='none';
+
+      el.style.background = task.color || '#eaeaea';
+      el.style.color = '#000';
+
+      if(task.done) {
+        el.classList.add('done');
+        el.querySelector('.tick').setAttribute('aria-pressed','true');
+      }
+
+      el.draggable = true;
+      el.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', task.id); });
+
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.actions') || e.target.closest('.tick')) return;
+        if ((task.notes || '').trim().length === 0) return;
+        el.classList.toggle('open');
+        el.setAttribute('aria-expanded', el.classList.contains('open'));
+      });
+
+      el.querySelector('.tick').onclick = (e)=>{
+        e.stopPropagation();
+        task.done = !task.done;
+        upsertTask(task);
+      };
+      el.querySelector('.edit').onclick = () => openModal(task);
+      el.querySelector('.del').onclick  = () => deleteTask(task.id);
+      el.querySelector('.copy').onclick = () => copyTask(task.id);
+
+      return el;
+    }
+
+    function moveCardToDate(id,date){
+      const t=state.tasks.find(x=>x.id===id);
+      if(!t) return;
+      t.date=date;
+      build();
+      renderAllDocks();
+    }
+
+    function openModal(task={}){
+      const f=$('#taskForm');
+      f.id.value=task.id||'';
+      f.title.value=task.title||'';
+      f.notes.value=task.notes||'';
+      f.color.value=task.color||'#6ea8fe';
+      f.date.value=task.date||'';
+      $('#modal').showModal();
+    }
+    function closeModal(){$('#modal').close();}
+
+    function upsertTask(data){
+      if(data.id){
+        Object.assign(state.tasks.find(t=>t.id===data.id),data);
+      }else{
+        data.id=crypto.randomUUID();
+        state.tasks.push(Object.assign({done:false}, data));
+      }
+      build();
+      renderAllDocks();
+    }
+    function deleteTask(id){state.tasks=state.tasks.filter(t=>t.id!==id);build();renderAllDocks();}
+    function copyTask(id){
+      const orig=state.tasks.find(t=>t.id===id);
+      if(!orig) return;
+      const copy={...orig,id:crypto.randomUUID()};
+      state.tasks.push(copy);
+      build();renderAllDocks();
+    }
+
+    // Generic dock rendering
+    function setupDockDrop(zoneEl, dateKey, clickToOpen=true){
+      zoneEl.addEventListener('dragover', e => { e.preventDefault(); });
+      zoneEl.addEventListener('drop', e => {
+        e.preventDefault();
+        const id = e.dataTransfer.getData('text/plain');
+        if(!id) return;
+        moveCardToDate(id, dateKey);
+      });
+      if (clickToOpen) {
+        zoneEl.onclick=e=>{ if(e.target===zoneEl){ openModal({date:dateKey}); } };
+      }
+    }
+
+    function renderDock(dateKey, zoneSelector){
+      const z=$(zoneSelector);
+      if(!z) return;
+      z.innerHTML='';
+      setupDockDrop(z, dateKey, true);
+      state.tasks.filter(t=>t.date===dateKey).forEach(t=>z.appendChild(renderCard(t)));
+    }
+
+    function renderAllDocks(){
+      renderDock('backlog', '#backlogZone');
+      renderDock('status',  '#statusZone');
+    }
+
+    // Navigation
+    $('#prev').onclick=()=>{ if(state.view==='month'){ state.month--; if(state.month<0){state.month=11; state.year--;}} else { state.cursor.setDate(state.cursor.getDate()-7);} build(); };
+    $('#next').onclick=()=>{ if(state.view==='month'){ state.month++; if(state.month>11){state.month=0; state.year++;}} else { state.cursor.setDate(state.cursor.getDate()+7);} build(); };
+    $('#viewMonth').onclick=()=>{ state.view='month'; build(); };
+    $('#viewWeek').onclick=()=>{ state.view='week'; build(); };
+
+    $('#closeModal').onclick=closeModal;
+    $('#taskForm').onsubmit=e=>{
+      e.preventDefault();
+      const fd=new FormData(e.target);
+      upsertTask({
+        id:fd.get('id')||'',
+        title:fd.get('title'),
+        notes:fd.get('notes'),
+        color:fd.get('color'),
+        date:fd.get('date')||''
+      });
+      closeModal();
+    };
+
+    // --- Export / Import helpers ---
+    function download(name, mime, text){
+      const blob=new Blob([text],{type:mime});
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    $('#exportJSON').onclick=()=>{
+      download('scapegoat-tasks.json','application/json', JSON.stringify({tasks:state.tasks}, null, 2));
+    };
+
+    // ✅ IMPORT HANDLER (supports {tasks:[...]} or raw array)
+    $('#importJSON').addEventListener('change', async (e)=>{
+      const file = e.target.files && e.target.files[0];
+      if(!file) return;
+      try{
+        const text = await file.text();
+        const incoming = JSON.parse(text);
+        const list = Array.isArray(incoming?.tasks) ? incoming.tasks
+                   : Array.isArray(incoming) ? incoming
+                   : [];
+        let added=0, updated=0;
+        list.forEach(nt=>{
+          if(!nt || !nt.title) return;
+          if(!nt.id) nt.id = crypto.randomUUID();
+          const i = state.tasks.findIndex(t=>t.id===nt.id);
+          if(i>=0){ state.tasks[i] = Object.assign({}, state.tasks[i], nt); updated++; }
+          else { state.tasks.push(Object.assign({done:false}, nt)); added++; }
+        });
+        build(); renderAllDocks();
+        alert(`Import complete: ${added} added, ${updated} updated.`);
+      }catch(err){
+        alert('Import failed: '+ err.message);
+      }finally{
+        e.target.value=''; // reset input to allow re-importing same file
+      }
+    });
+
+    // Save to self-contained HTML (keeps your tasks embedded)
+    $('#saveFile').onclick=()=>{
+      const dataScript=document.createElement('script');
+      dataScript.id='kanban-data';
+      dataScript.type='application/json';
+      dataScript.textContent=JSON.stringify({tasks:state.tasks});
+      const clone=document.documentElement.cloneNode(true);
+      const old=clone.querySelector('#kanban-data');
+      if(old) old.replaceWith(dataScript); else clone.querySelector('body').appendChild(dataScript);
+      const blob=new Blob(['<!DOCTYPE html>\n'+clone.outerHTML],{type:'text/html'});
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download='🐐 Scapegoat V1.4.6.html';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+
+    build();
+    renderAllDocks();
+  })();
+  </script>
+
+
+</body></html>
